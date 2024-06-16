@@ -1,0 +1,42 @@
+# Model arguments
+model_name_or_path: outputs/zephyr-7b-sec9
+
+# Data training arguments
+dataset_mixer:
+  #HuggingFaceH4/ultrafeedback_binarized: 1.0
+  # UCLA-AGI/SPIN_iter0: 1.0
+  # generated/zephyr-iter1-sec9: 1.0
+  generated/zephyr-iter1-sec10: 1.0
+dataset_splits:
+- train
+- test
+preprocessing_num_workers: 12
+
+# Trainer arguments
+bf16: true
+beta: 0.1
+alpha: 0.0
+# isNewSPIN: true
+do_eval: false
+evaluation_strategy: "no"
+eval_steps: 100
+gradient_accumulation_steps: 1
+gradient_checkpointing: true
+hub_model_id: zephyr-7b-sec10
+# learning_rate: 5.0e-7
+learning_rate: 5.0e-7
+log_level: info
+logging_steps: 10
+lr_scheduler_type: linear
+max_length: 512 # 1024
+max_prompt_length: 128 # 512
+num_train_epochs: 1
+optim: rmsprop
+output_dir: outputs/zephyr-7b-sec10
+per_device_train_batch_size: 2
+per_device_eval_batch_size: 4
+push_to_hub: false
+save_strategy: "epoch"
+save_total_limit: null
+seed: 42
+warmup_ratio: 0.1
