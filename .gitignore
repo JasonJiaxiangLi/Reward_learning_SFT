@@ -170,4 +170,5 @@ outputs/
 models/
 eval_results/
 likelihood/eval_data
-msi_scripts/
+IRFT_scripts/
+RFT_scripts/
