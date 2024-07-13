@@ -65,6 +65,20 @@ def main():
     parser = H4ArgumentParser((ModelArguments, DataArguments, SPINConfig))
     model_args, data_args, training_args = parser.parse()
     wandb.init()
+    
+    # print(f"model_args: {model_args}, data_args: {data_args}, training_args: {training_args}")
+    # from transformers import AutoModelForCausalLM
+    # model=AutoModelForCausalLM.from_pretrained('alignment-handbook/zephyr-7b-sft-full')
+    # for name, param in model.state_dict().items():
+    #     print(f"model tensor name: {name}, Shape: {param.shape}")
+    # print(f"model: {model}")
+    
+    # state_dict = model.state_dict()
+
+    # # Load the adapter weights into the gathered state dict
+    # for name, param in state_dict.items():
+    #     print(f"state_dict tensor name: {name}, Shape: {param.shape}")
+    # exit()
 
     #######
     # Setup
@@ -147,7 +161,10 @@ def main():
 
     model = model_args.model_name_or_path
 
-    ref_model = model
+    if model_args.ref_model_name_or_path is None:
+        ref_model = model
+    else:
+        ref_model = model_args.ref_model_name_or_path
     ref_model_kwargs = model_kwargs
 
     if model_args.use_peft is True:
@@ -231,6 +248,10 @@ def main():
     ##################################
     # Save model and create model card
     ##################################
+    # if model_args.use_peft:
+    #     # if the model is lora, unload before saving it
+    #     spin_trainer.model = spin_trainer.model.merge_and_unload()
+        
     spin_trainer.save_model(training_args.output_dir)
     # Save everything else on main process
     if accelerator.is_main_process:

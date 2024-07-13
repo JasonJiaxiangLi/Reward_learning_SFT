@@ -112,7 +112,7 @@ setup(
     keywords="llm language-models transformers nlp deep-learning",
     license="Apache",
     url="https://github.com/uclaml/SPIN",
-    package_dir={"": "spin"},
+    package_dir={"": "src"},
     packages=find_packages("spin"),
     zip_safe=False,
     extras_require=extras,

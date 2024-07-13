@@ -30,6 +30,7 @@ from trl.trainer.utils import disable_dropout_in_model, pad_to_length
 
 from .utils import DataCollatorWithPadding
 
+from peft import AutoPeftModelForCausalLM
 
 if is_peft_available():
     from peft import PeftModel, get_peft_model, prepare_model_for_kbit_training
@@ -148,13 +149,29 @@ class SPINTrainer(Trainer):
             raise ValueError(
                 "You passed ref_model_kwargs to the SPINTrainer. But your ref_model is already instantiated."
             )
-
+        
         if isinstance(model, str):
             warnings.warn(
                 "You passed a model_id to the SPINTrainer. This will automatically create an "
                 "`AutoModelForCausalLM` or a `PeftModel` (if you passed a `peft_config`) for you."
             )
+            # print(f"model: {model}, model_init_kwargs: {model_init_kwargs}")
             model = AutoModelForCausalLM.from_pretrained(model, **model_init_kwargs)
+            # print(f"model is {model}")
+            
+            # adapters_name = model
+            # model = AutoModelForCausalLM.from_pretrained('alignment-handbook/zephyr-7b-sft-full', **model_init_kwargs)
+            # model = PeftModel.from_pretrained(model, adapters_name)
+            
+            # # below: check the adapter safetensors here
+            # from safetensors.torch import load_file
+            # tensors = load_file('outputs/zephyr-7b-sec1/adapter_model.safetensors')
+            # for name, param in tensors.items():
+            #     print(f"saved tensor name: {name}, Shape: {param.shape}")
+            
+            # model = AutoModelForCausalLM.from_pretrained('alignment-handbook/zephyr-7b-sft-full')
+            # for name, param in model.state_dict().items():
+            #     print(f"model tensor name: {name}, Shape: {param.shape}")
 
         if isinstance(ref_model, str):
             warnings.warn(
@@ -235,7 +252,7 @@ class SPINTrainer(Trainer):
             self.ref_model = None
         else:
             self.ref_model = create_reference_model(model)
-        print(f"ref_model is {ref_model}")
+        # print(f"ref_model is {ref_model}")
 
         if data_collator is None:
             if tokenizer is None:
