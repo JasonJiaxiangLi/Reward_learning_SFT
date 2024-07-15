@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 def main():
     parser = H4ArgumentParser((ModelArguments, DataArguments, SPINConfig))
     model_args, data_args, training_args = parser.parse()
-    wandb.init()
+    # wandb.init()
     
     # print(f"model_args: {model_args}, data_args: {data_args}, training_args: {training_args}")
     # from transformers import AutoModelForCausalLM
@@ -281,7 +281,7 @@ def main():
     # accelerator.wait_for_everyone()
 
     logger.info("*** Run complete! ***")
-
+    exit()
 
 
 if __name__ == "__main__":
