@@ -281,8 +281,8 @@ def main():
     # accelerator.wait_for_everyone()
 
     logger.info("*** Run complete! ***")
-    exit()
 
 
 if __name__ == "__main__":
     main()
+    print("The main training process is finished")
