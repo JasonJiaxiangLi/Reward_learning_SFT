@@ -397,7 +397,7 @@ class SPINTrainer(Trainer):
             max_length = max(batch["real_labels"].shape[1], batch["generated_labels"].shape[1])
         else:
             max_length = max(batch["real_input_ids"].shape[1], batch["generated_input_ids"].shape[1])
-
+        
         for k in batch:
             if k.startswith("real") and isinstance(batch[k], torch.Tensor):
                 pad_value = self.label_pad_token_id if "labels" in k or self.is_encoder_decoder else self.padding_value

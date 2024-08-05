@@ -50,7 +50,8 @@ class H4ArgumentParser(HfArgumentParser):
 
         outputs = []
         # strip other args list into dict of key-value pairs
-        other_args = {arg.split("=")[0].strip("-"): arg.split("=")[1] for arg in other_args}
+        if other_args is not None:
+            other_args = {arg.split("=")[0].strip("-"): arg.split("=")[1] for arg in other_args}
         used_args = {}
 
         # overwrite the default/loaded value with the value provided to the command line
