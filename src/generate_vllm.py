@@ -17,7 +17,7 @@ warnings.filterwarnings("ignore")
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, default='UCLA-AGI/zephyr-7b-sft-full-SPIN-iter0')
+    parser.add_argument('--model', type=str, default='alignment-handbook/zephyr-7b-sft-full')
     parser.add_argument('--data_frac', type=int, default=0)
     parser.add_argument('--frac_len', type=int, default=0)
     parser.add_argument('--output_dir', type=str, default='generated/iter1')

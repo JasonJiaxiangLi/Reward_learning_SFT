@@ -164,7 +164,7 @@ cython_debug/
 generated/
 wandb/
 reformatted/
-data/
+# data/
 log/
 outputs/
 models/

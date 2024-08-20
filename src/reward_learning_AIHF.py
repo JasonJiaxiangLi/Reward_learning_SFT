@@ -28,7 +28,7 @@ from transformers import (
 ) 
 from dataclasses import dataclass, field
 from datasets import load_dataset
-from reward_model_RLHF import GPTRewardModel
+from reward_model import GPTRewardModel
 import numpy as np
 from typing import Any, Dict, List, Optional, Union
 from collections import defaultdict as ddict
@@ -268,8 +268,8 @@ if __name__=='__main__':
     preference_dataset = create_comparison_dataset("./data/HH_preference.json", split="train",sample_size=10000)
     valid_preference_dataset = create_comparison_dataset("./data/HH_preference.json", split="train[-50:]")
     
-    #upload expert pairs
-    demonstration_dataset = create_expert_dataset("./data/temp_agent_demonstration.json", split="train")
+    # upload expert pairs
+    demonstration_dataset = create_expert_dataset(script_args.demonstration_path, split="train")
     train_dataset = PairwiseDataset(preference_dataset,demonstration_dataset, tokenizer, max_length=max_length, preference_weight=script_args.preference_weight, demonstration_weight=script_args.demonstration_weight)
     val_dataset = PairwiseDataset(valid_preference_dataset, valid_preference_dataset, tokenizer, max_length=max_length)
 

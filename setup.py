@@ -103,17 +103,17 @@ install_requires = [
 ]
 
 setup(
-    name="spin",
+    name="rft",
     version="0.1.0.dev0",  
-    author="uclaml",
-    description="Self-Play Fine-Tuning (SPIN)",
+    author="RFT authors",
+    description="(Implicit) Reward Learning Fine-Tune",
     long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     keywords="llm language-models transformers nlp deep-learning",
     license="Apache",
-    url="https://github.com/uclaml/SPIN",
+    url="https://github.com/JasonJiaxiangLi/Reward_learning_SFT",
     package_dir={"": "src"},
-    packages=find_packages("spin"),
+    packages=find_packages("rft"),
     zip_safe=False,
     extras_require=extras,
     python_requires=">=3.10.2",

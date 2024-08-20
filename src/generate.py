@@ -22,18 +22,18 @@ accelerator = Accelerator(kwargs_handlers=[kwargs])
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, default='mistralai/Mistral-7B-v0.1')
+    parser.add_argument('--model', type=str, default='alignment-handbook/zephyr-7b-sft-full')
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--end_index', type=int, default=-1)
     parser.add_argument('--max_prompt_length', type=int, default=128)
     parser.add_argument('--max_continuation_length', type=int, default=128)
-    parser.add_argument('--output_dir', type=str, default='eval_data')
+    parser.add_argument('--output_dir', type=str, default='generated/iter1')
     parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--input_dir', type=str, default="data/loser_0.jsonl")
+    parser.add_argument('--input_dir', type=str, default="UCLA-AGI/SPIN_iter0")
     parser.add_argument('--split', type=str, default='train')
     return parser.parse_args()
 
-def prepare_prompts(prompts, tokenizer,demonstration, batch_size=4, max_prompt_length = 128):
+def prepare_prompts(prompts, tokenizer, demonstration, batch_size=4, max_prompt_length = 128):
     """Prepare prompts for tokenization."""
     batches_prompt=[prompts[i:i + batch_size] for i in range(0, len(prompts), batch_size)]  
     batches_demonstration=[demonstration[i:i+ batch_size] for i in range(0, len(demonstration), batch_size)]
@@ -82,7 +82,6 @@ def get_hh(split: str, sanity_check: bool = False, silent: bool = False, cache_d
             "chosen": sample["chosen"],
             "rejected": sample["rejected"],
         }
-        
             
     dataset = load_dataset("Anthropic/hh-rlhf", split=split, cache_dir=cache_dir)
     
@@ -102,18 +101,29 @@ def main():
         device_map={"": accelerator.process_index},
         torch_dtype=torch.bfloat16,
     )
-    tokenizer = AutoTokenizer.from_pretrained("EleutherAI/pythia-1.4b")   
+    tokenizer = AutoTokenizer.from_pretrained(model_path)   
     tokenizer.pad_token = tokenizer.eos_token
 
     # load data
-    data = load_dataset("json",data_files=args.input_dir, split=f'train[{args.start_index}:{args.end_index}]') #load_dataset("json", data_files=args.input_dir, split="train[:280]")
+    if args.input_dir == "Anthropic/hh-rlhf":
+        data = get_hh(split=args.split)
+    elif args.input_dir == "UCLA-AGI/SPIN_iter0":
+        data = load_dataset(args.input_dir, split=args.split)
+        data = data[:]['real']
+        data = data[args.begin_index: args.end_index]
+    else:
+        data = load_dataset("json", data_files=args.input_dir, split=f'train[{args.start_index}:{args.end_index}]') 
+    # load_dataset("json", data_files=args.input_dir, split="train[:280]")
     data = data.shuffle(seed=42)
     print('the data has been uploaded')
-    prompts_all=[list(pair) for pair in zip(data['prompts'], data['chosen'])]
+    if args.input_dir == "UCLA-AGI/SPIN_iter0":
+        prompts_all = [["### Instruction: " + data[idx][0]['content'] + "\n\n### Response: ", data[idx][1]['content']] for idx in range(len(data))]
+    else:
+        prompts_all=[list(pair) for pair in zip(data['prompts'], data['chosen'])]
     # print(type(prompts_all))
     # quit()
     # prompts_all=zip(data["prompts"],data["demon"])
-    prompts_old=prompts_all
+    # prompts_old = prompts_all
 
     accelerator.wait_for_everyone()    
     start=time.time()
@@ -130,7 +140,7 @@ def main():
         demon=[i[1] for i in all_data]
         # print(len(prompts),len(demon))
         results = {'prompt': [], 'continuation': [], "demon":[]}
-        original_prompt_batches, tokenized_prompt_batches, original_demon_batches = prepare_prompts(prompts, tokenizer, demon,batch_size=args.batch_size, max_prompt_length=args.max_prompt_length)
+        original_prompt_batches, tokenized_prompt_batches, original_demon_batches = prepare_prompts(prompts, tokenizer, demon, batch_size=args.batch_size, max_prompt_length=args.max_prompt_length)
         for original_prompts, prompts_tokenized,original_demon in tqdm(zip(original_prompt_batches, tokenized_prompt_batches, original_demon_batches), total=len(tokenized_prompt_batches)):
             # set max_new_tokens smaller for faster inference
             outputs_tokenized=model.generate(**prompts_tokenized, max_new_tokens=args.max_continuation_length, pad_token_id=tokenizer.eos_token_id)
