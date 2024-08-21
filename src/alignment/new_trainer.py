@@ -1,13 +1,12 @@
 # Adapted from https://github.com/huggingface/alignment-handbook 
 
 import inspect
-import warnings
 import random
+import warnings
 from collections import defaultdict
 from copy import deepcopy
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
-import numpy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -28,21 +27,27 @@ from transformers.trainer_utils import EvalLoopOutput
 from trl.import_utils import is_peft_available, is_wandb_available
 from trl.models import PreTrainedModelWrapper, create_reference_model
 from trl.trainer.utils import disable_dropout_in_model, pad_to_length
-from datetime import datetime
 
 from .utils import DataCollatorWithPadding
+from transformers.utils import (
+    is_apex_available,
+    is_peft_available,
+)
+from transformers.training_args import OptimizerNames
 
+from peft import AutoPeftModelForCausalLM
 
 if is_peft_available():
     from peft import PeftModel, get_peft_model, prepare_model_for_kbit_training
 
+if is_apex_available():
+    from apex import amp
 
 if is_wandb_available():
     import wandb
 
 if is_deepspeed_available():
     import deepspeed
-
 
 class NewSPINTrainer(Trainer):
     r"""
@@ -138,9 +143,6 @@ class NewSPINTrainer(Trainer):
         compute_metrics: Optional[Callable[[EvalLoopOutput], Dict]] = None,
         model_init_kwargs: Optional[Dict] = None,
         ref_model_init_kwargs: Optional[Dict] = None,
-        generation_rate: Optional[float] = 0.5,
-        max_new_tokens: Optional[int] = 128,
-        generate_interval: Optional[int] = 1,
     ):
         if model_init_kwargs is None:
             model_init_kwargs = {}
@@ -153,13 +155,29 @@ class NewSPINTrainer(Trainer):
             raise ValueError(
                 "You passed ref_model_kwargs to the SPINTrainer. But your ref_model is already instantiated."
             )
-
+        
         if isinstance(model, str):
             warnings.warn(
                 "You passed a model_id to the SPINTrainer. This will automatically create an "
                 "`AutoModelForCausalLM` or a `PeftModel` (if you passed a `peft_config`) for you."
             )
+            # print(f"model: {model}, model_init_kwargs: {model_init_kwargs}")
             model = AutoModelForCausalLM.from_pretrained(model, **model_init_kwargs)
+            # print(f"model is {model}")
+            
+            # adapters_name = model
+            # model = AutoModelForCausalLM.from_pretrained('alignment-handbook/zephyr-7b-sft-full', **model_init_kwargs)
+            # model = PeftModel.from_pretrained(model, adapters_name)
+            
+            # # below: check the adapter safetensors here
+            # from safetensors.torch import load_file
+            # tensors = load_file('outputs/zephyr-7b-sec1/adapter_model.safetensors')
+            # for name, param in tensors.items():
+            #     print(f"saved tensor name: {name}, Shape: {param.shape}")
+            
+            # model = AutoModelForCausalLM.from_pretrained('alignment-handbook/zephyr-7b-sft-full')
+            # for name, param in model.state_dict().items():
+            #     print(f"model tensor name: {name}, Shape: {param.shape}")
 
         if isinstance(ref_model, str):
             warnings.warn(
@@ -240,6 +258,7 @@ class NewSPINTrainer(Trainer):
             self.ref_model = None
         else:
             self.ref_model = create_reference_model(model)
+        # print(f"ref_model is {ref_model}")
 
         if data_collator is None:
             if tokenizer is None:
@@ -299,15 +318,12 @@ class NewSPINTrainer(Trainer):
                 disable_dropout_in_model(self.ref_model)
 
         self.max_length = max_length
-        self.max_new_tokens = max_new_tokens
         self.generate_during_eval = generate_during_eval
         self.label_pad_token_id = label_pad_token_id
         self.padding_value = padding_value
 
         self.beta = beta
         self.loss_type = loss_type
-        self.generation_rate = generation_rate
-        self.generate_interval = generate_interval
 
         self._stored_metrics = defaultdict(lambda: defaultdict(list))
 
@@ -387,7 +403,7 @@ class NewSPINTrainer(Trainer):
             max_length = max(batch["real_labels"].shape[1], batch["generated_labels"].shape[1])
         else:
             max_length = max(batch["real_input_ids"].shape[1], batch["generated_input_ids"].shape[1])
-
+        
         for k in batch:
             if k.startswith("real") and isinstance(batch[k], torch.Tensor):
                 pad_value = self.label_pad_token_id if "labels" in k or self.is_encoder_decoder else self.padding_value
@@ -435,30 +451,32 @@ class NewSPINTrainer(Trainer):
             The real_rewards and generated_rewards tensors contain the rewards for the real and generated responses, respectively.
         """
         pi_logratios = policy_real_logps - policy_generated_logps
-        ref_logratios = opponent_real_logps - opponent_generated_logps
-
-        if reference_free:
+        if self.ref_model is not None and not reference_free:
+            ref_logratios = opponent_real_logps - opponent_generated_logps
+        else:
             ref_logratios = 0
 
         logits = pi_logratios - ref_logratios
 
         if self.loss_type == "sigmoid":
+            loss1 = -F.logsigmoid(self.beta * pi_logratios)
+            loss2 = -F.logsigmoid(self.beta * ref_logratios)
             losses = -F.logsigmoid(self.beta * logits)
         elif self.loss_type == "hinge":
+            loss1 = -torch.relu(1 - self.beta * pi_logratios)
+            loss2 = -torch.relu(1 - self.beta * ref_logratios)
             losses = torch.relu(1 - self.beta * logits)
-        elif self.loss_type == "none":
-            losses = -self.beta * logits
         else:
             raise ValueError(f"Unknown loss type: {self.loss_type}. Should be one of ['sigmoid', 'hinge']")
-        # losses = -self.beta * logits
-        
-        real_rewards = self.beta * (policy_real_logps - opponent_real_logps).detach()
-        generated_rewards = self.beta * (policy_generated_logps - opponent_generated_logps).detach()
 
-        # # the main change from SPIN's paper
-        # losses = losses.detach() * torch.exp(policy_generated_logps) + losses
+        if self.ref_model is not None:
+            real_rewards = self.beta * (policy_real_logps - opponent_real_logps).detach()
+            generated_rewards = self.beta * (policy_generated_logps - opponent_generated_logps).detach()
+        else:
+            real_rewards = self.beta * (policy_real_logps).detach()
+            generated_rewards = self.beta * (policy_generated_logps).detach()
 
-        return losses, real_rewards, generated_rewards
+        return losses, real_rewards, generated_rewards, loss1, loss2
 
     def _get_batch_logps(
         self,
@@ -541,58 +559,24 @@ class NewSPINTrainer(Trainer):
         """Compute the SPIN loss and other metrics for the given batch of inputs for train or test."""
         metrics = {}
 
-        # ADDED: a generation process
-        # model.eval()
-        # now = datetime.now()
-        # curr_time = now.strftime("%H:%M:%S")
-        # print(f"time before generate = {curr_time}")
-
-        # ADDED: add a temporary sub-sampling
-        if numpy.random.binomial(size=1, n=1, p=self.generation_rate) > 0:
-            model.eval()
-            with self.accelerator.split_between_processes(batch) as prompts:
-            # with torch.no_grad():
-                # outputs_tokenized=self.accelerator.unwrap_model(model).generate(input_ids=batch['prompt_input_ids'], attention_mask=batch['prompt_attention_mask'], \
-                #                                     max_new_tokens=self.max_new_tokens, pad_token_id=self.tokenizer.pad_token_id)
-                outputs_tokenized=self.accelerator.unwrap_model(model).generate(input_ids=prompts['prompt_input_ids'], attention_mask=prompts['prompt_attention_mask'], \
-                                                    max_new_tokens=self.max_new_tokens, pad_token_id=self.tokenizer.pad_token_id)
-                
-                # print(f"batch['prompt_input_ids']: {batch['prompt_input_ids']}, shape: {batch['prompt_input_ids'].shape}")
-                # print(f"batch['generated_input_ids']: {batch['generated_input_ids']}, shape: {batch['generated_input_ids'].shape}")
-                # print(f"batch['generated_labels']: {batch['generated_labels']}, shape: {batch['generated_labels'].shape}")
-
-            outputs_mask = torch.ones_like(outputs_tokenized)
-            outputs_tokenized = pad_to_length(outputs_tokenized, batch["generated_input_ids"].shape[1], pad_value=self.tokenizer.pad_token_id)
-            outputs_mask = pad_to_length(outputs_mask, batch["generated_input_ids"].shape[1], pad_value=0)
-            batch['generated_input_ids'] = outputs_tokenized
-            batch['generated_attention_mask'] = outputs_mask
-            batch['generated_labels'] = torch.stack([ torch.cat([-100 * torch.ones(len(tok_in), dtype=tok_in.dtype, device=tok_in.device),
-                tok_out[len(tok_in):]]) for tok_in, tok_out in zip(batch["prompt_input_ids"], outputs_tokenized) ])
-            # print("------------AFTER GENERATION------------")
-            # print(f"batch['prompt_input_ids']: {batch['prompt_input_ids']}, shape: {batch['prompt_input_ids'].shape}")
-            # print(f"batch['generated_input_ids']: {batch['generated_input_ids']}, shape: {batch['generated_input_ids'].shape}")
-            # print(f"batch['generated_labels']: {batch['generated_labels']}, shape: {batch['generated_labels'].shape}")
-            model.train()
-            # now = datetime.now()
-            # curr_time = now.strftime("%H:%M:%S")
-            # print(f"time after generate = {curr_time}")
-            # exit()
-
         (
             policy_real_logps,
             policy_generated_logps,
             policy_real_logits,
             policy_generated_logits,
         ) = self.concatenated_forward(model, batch)
-        with torch.no_grad():
-            (
-                opponent_real_logps,
-                opponent_generated_logps,
-                _,
-                _,
-            ) = self.concatenated_forward(self.ref_model, batch)
+        if self.ref_model is not None:
+            with torch.no_grad():
+                (
+                    opponent_real_logps,
+                    opponent_generated_logps,
+                    _,
+                    _,
+                ) = self.concatenated_forward(self.ref_model, batch)
+        else:
+            opponent_real_logps, opponent_generated_logps = None, None
 
-        losses, real_rewards, generated_rewards = self.spin_loss(
+        losses, real_rewards, generated_rewards, loss1, loss2 = self.spin_loss(
             policy_real_logps,
             policy_generated_logps,
             opponent_real_logps,
@@ -609,8 +593,82 @@ class NewSPINTrainer(Trainer):
         metrics[f"{prefix}logps/real"] = policy_real_logps.detach().cpu().mean()
         metrics[f"{prefix}logits/generated"] = policy_generated_logits.detach().cpu().mean()
         metrics[f"{prefix}logits/real"] = policy_real_logits.detach().cpu().mean()
+        metrics[f"{prefix}loss/loss1"] = loss1.detach().cpu().mean()
+        metrics[f"{prefix}loss/loss2"] = loss2.detach().cpu().mean()
 
-        return losses.mean(), metrics
+        return losses.mean(), metrics, loss1.mean(), loss2.mean()
+    
+    def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
+        """
+        Perform a training step on a batch of inputs.
+
+        Subclass and override to inject custom behavior.
+
+        Args:
+            model (`nn.Module`):
+                The model to train.
+            inputs (`Dict[str, Union[torch.Tensor, Any]]`):
+                The inputs and targets of the model.
+
+                The dictionary will be unpacked before being fed to the model. Most models expect the targets under the
+                argument `labels`. Check your model's documentation for all accepted arguments.
+
+        Return:
+            `torch.Tensor`: The tensor with training loss on this batch.
+        """
+        model.train()
+        inputs = self._prepare_inputs(inputs)
+        
+        with self.compute_loss_context_manager():
+            loss, loss1, loss2 = self.compute_loss(model, inputs)
+
+        del inputs
+        if (
+            self.args.torch_empty_cache_steps is not None
+            and self.state.global_step % self.args.torch_empty_cache_steps == 0
+        ):
+            # if is_torch_xpu_available():
+            #     torch.xpu.empty_cache()
+            # elif is_torch_mlu_available():
+            #     torch.mlu.empty_cache()
+            # elif is_torch_musa_available():
+            #     torch.musa.empty_cache()
+            # elif is_torch_npu_available():
+            #     torch.npu.empty_cache()
+            # elif is_torch_mps_available(min_version="2.0"):
+            #     torch.mps.empty_cache()
+            # else:
+            torch.cuda.empty_cache()
+
+        kwargs = {}
+
+        # For LOMO optimizers you need to explicitly use the learnign rate
+        if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
+            kwargs["learning_rate"] = self._get_learning_rate()
+
+        if self.args.n_gpu > 1:
+            loss = loss.mean()  # mean() to average on multi-gpu parallel training
+            loss1 = loss1.mean()
+            loss2 = loss2.mean()
+
+        # if self.use_apex:
+        #     with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+        #         scaled_loss.backward()
+        # else:
+        self.accelerator.backward(loss1, **kwargs)
+        
+        for _, param in self.model.named_parameters():
+            if param.requires_grad:
+                param.grad1 = param.grad
+                param.grad = None  # Make sure the grad is empty and will not be updated.
+        
+        self.accelerator.backward(loss2, **kwargs)
+        
+        for _, param in self.model.named_parameters():
+            if param.requires_grad:
+                param.grad = param.grad1 / torch.linalg.norm(param.grad1) - param.grad / torch.linalg.norm(param.grad)
+
+        return loss.detach() / self.args.gradient_accumulation_steps # , loss1.detach() / self.args.gradient_accumulation_steps, loss2.detach() / self.args.gradient_accumulation_steps
 
     def compute_loss(
         self,
@@ -623,15 +681,15 @@ class NewSPINTrainer(Trainer):
                 "compute_loss is only implemented for SPINDataCollatorWithPadding, and you passed a datacollator that is different than "
                 "SPINDataCollatorWithPadding - you might see unexpected behavior. Alternatively, you can implement your own prediction_step method if you are using a custom data collator"
             )
-        loss, metrics = self.get_batch_metrics(model, inputs, train_eval="train")
+        loss, metrics, loss1, loss2 = self.get_batch_metrics(model, inputs, train_eval="train")
 
         # force log the metrics
         if self.accelerator.is_main_process:
             self.store_metrics(metrics, train_eval="train")
 
-        if return_outputs:
-            return (loss, metrics)
-        return loss
+        # if return_outputs:
+        #     return (loss, metrics)
+        return loss, loss1, loss2
 
     def get_batch_samples(self, model, batch: Dict[str, torch.LongTensor]) -> Tuple[str, str]:
         """Generate samples from the model and reference model for the given batch of inputs."""
@@ -689,7 +747,7 @@ class NewSPINTrainer(Trainer):
                 ignore_keys = []
 
         with torch.no_grad():
-            loss, metrics = self.get_batch_metrics(model, inputs, train_eval="eval")
+            loss, metrics, _, _ = self.get_batch_metrics(model, inputs, train_eval="eval")
 
         # force log the metrics
         if self.accelerator.is_main_process:
@@ -773,11 +831,8 @@ class NewSPINTrainer(Trainer):
         """
         # logs either has 'loss' or 'eval_loss'
         train_eval = "train" if "loss" in logs else "eval"
-        # # Add averaged stored metrics to logs
+        # Add averaged stored metrics to logs
         for key, metrics in self._stored_metrics[train_eval].items():
             logs[key] = torch.tensor(metrics).mean().item()
-        
-        # logs = {key: torch.tensor(metrics).mean().item() for key, metrics in self._stored_metrics[train_eval].items()}
-        wandb.log(logs)
         del self._stored_metrics[train_eval]
         return super().log(logs)
