@@ -450,22 +450,23 @@ class NewSPINTrainer(Trainer):
             The losses tensor contains the SPIN loss for each example in the batch.
             The real_rewards and generated_rewards tensors contain the rewards for the real and generated responses, respectively.
         """
-        pi_logratios = policy_real_logps - policy_generated_logps
         if self.ref_model is not None and not reference_free:
             ref_logratios = opponent_real_logps - opponent_generated_logps
         else:
             ref_logratios = 0
 
-        logits = pi_logratios - ref_logratios
+        # pi_logratios = policy_real_logps - policy_generated_logps
+        # logits = pi_logratios - ref_logratios
 
         if self.loss_type == "sigmoid":
-            loss1 = -F.logsigmoid(self.beta * pi_logratios)
-            loss2 = -F.logsigmoid(self.beta * ref_logratios)
-            losses = -F.logsigmoid(self.beta * logits)
+            # print(f"policy_real_logps: {policy_real_logps}, policy_generated_logps: {policy_generated_logps}")
+            loss1 = -F.logsigmoid(self.beta * (policy_real_logps - policy_generated_logps.detach() - ref_logratios))
+            loss2 = -F.logsigmoid(self.beta * (policy_real_logps.detach() - policy_generated_logps - ref_logratios))
+            # losses = -F.logsigmoid(self.beta * logits)
         elif self.loss_type == "hinge":
-            loss1 = -torch.relu(1 - self.beta * pi_logratios)
-            loss2 = -torch.relu(1 - self.beta * ref_logratios)
-            losses = torch.relu(1 - self.beta * logits)
+            loss1 = -torch.relu(1 - self.beta * (policy_real_logps - policy_generated_logps.detach() - ref_logratios))
+            loss2 = -torch.relu(1 - self.beta * (policy_real_logps.detach() - policy_generated_logps - ref_logratios))
+            # losses = torch.relu(1 - self.beta * logits)
         else:
             raise ValueError(f"Unknown loss type: {self.loss_type}. Should be one of ['sigmoid', 'hinge']")
 
@@ -476,7 +477,7 @@ class NewSPINTrainer(Trainer):
             real_rewards = self.beta * (policy_real_logps).detach()
             generated_rewards = self.beta * (policy_generated_logps).detach()
 
-        return losses, real_rewards, generated_rewards, loss1, loss2
+        return loss1, loss2, real_rewards, generated_rewards
 
     def _get_batch_logps(
         self,
@@ -576,7 +577,7 @@ class NewSPINTrainer(Trainer):
         else:
             opponent_real_logps, opponent_generated_logps = None, None
 
-        losses, real_rewards, generated_rewards, loss1, loss2 = self.spin_loss(
+        loss1, loss2, real_rewards, generated_rewards = self.spin_loss(
             policy_real_logps,
             policy_generated_logps,
             opponent_real_logps,
@@ -593,10 +594,10 @@ class NewSPINTrainer(Trainer):
         metrics[f"{prefix}logps/real"] = policy_real_logps.detach().cpu().mean()
         metrics[f"{prefix}logits/generated"] = policy_generated_logits.detach().cpu().mean()
         metrics[f"{prefix}logits/real"] = policy_real_logits.detach().cpu().mean()
-        metrics[f"{prefix}loss/loss1"] = loss1.detach().cpu().mean()
-        metrics[f"{prefix}loss/loss2"] = loss2.detach().cpu().mean()
+        # metrics[f"{prefix}loss/loss1"] = loss1.detach().cpu().mean()
+        # metrics[f"{prefix}loss/loss2"] = loss2.detach().cpu().mean()
 
-        return losses.mean(), metrics, loss1.mean(), loss2.mean()
+        return loss1.mean(), loss2.mean(), metrics
     
     def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
         """
@@ -620,34 +621,36 @@ class NewSPINTrainer(Trainer):
         inputs = self._prepare_inputs(inputs)
         
         with self.compute_loss_context_manager():
-            loss, loss1, loss2 = self.compute_loss(model, inputs)
-
+            loss1, loss2 = self.compute_loss(model, inputs)
+        
+        # print(f"loss1: {loss1}, loss2: {loss2}")
         del inputs
-        if (
-            self.args.torch_empty_cache_steps is not None
-            and self.state.global_step % self.args.torch_empty_cache_steps == 0
-        ):
-            # if is_torch_xpu_available():
-            #     torch.xpu.empty_cache()
-            # elif is_torch_mlu_available():
-            #     torch.mlu.empty_cache()
-            # elif is_torch_musa_available():
-            #     torch.musa.empty_cache()
-            # elif is_torch_npu_available():
-            #     torch.npu.empty_cache()
-            # elif is_torch_mps_available(min_version="2.0"):
-            #     torch.mps.empty_cache()
-            # else:
-            torch.cuda.empty_cache()
+        
+        # if (
+        #     self.args.torch_empty_cache_steps is not None
+        #     and self.state.global_step % self.args.torch_empty_cache_steps == 0
+        # ):
+        #     if is_torch_xpu_available():
+        #         torch.xpu.empty_cache()
+        #     elif is_torch_mlu_available():
+        #         torch.mlu.empty_cache()
+        #     elif is_torch_musa_available():
+        #         torch.musa.empty_cache()
+        #     elif is_torch_npu_available():
+        #         torch.npu.empty_cache()
+        #     elif is_torch_mps_available(min_version="2.0"):
+        #         torch.mps.empty_cache()
+        #     else:
+        #         torch.cuda.empty_cache()
 
-        kwargs = {}
+        # kwargs = {}
 
-        # For LOMO optimizers you need to explicitly use the learnign rate
-        if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
-            kwargs["learning_rate"] = self._get_learning_rate()
+        # # For LOMO optimizers you need to explicitly use the learning rate
+        # if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
+        #     kwargs["learning_rate"] = self._get_learning_rate()
 
         if self.args.n_gpu > 1:
-            loss = loss.mean()  # mean() to average on multi-gpu parallel training
+            # loss = loss.mean()  # mean() to average on multi-gpu parallel training
             loss1 = loss1.mean()
             loss2 = loss2.mean()
 
@@ -655,21 +658,29 @@ class NewSPINTrainer(Trainer):
         #     with amp.scale_loss(loss, self.optimizer) as scaled_loss:
         #         scaled_loss.backward()
         # else:
-        self.accelerator.backward(loss1, **kwargs)
+        self.accelerator.backward(loss1, retain_graph=True)
         
         for _, param in self.model.named_parameters():
             if param.requires_grad:
-                param.grad1 = param.grad
+                # print(f"after: param name: {name}, grad: {param.grad.shape if param.grad is not None else None}")
+                param.grad1 = param.grad.detach()
                 param.grad = None  # Make sure the grad is empty and will not be updated.
+                
+        # for param_group in self.optimizer.param_groups:
+        #     print(self.optimizer.param_groups)
+        #     for param in param_group['params']:
+        #         print(param)
+        # exit()
         
-        self.accelerator.backward(loss2, **kwargs)
+        self.accelerator.backward(loss2)
         
         for _, param in self.model.named_parameters():
             if param.requires_grad:
-                param.grad = param.grad1 / torch.linalg.norm(param.grad1) - param.grad / torch.linalg.norm(param.grad)
+                param.grad = param.grad1 / (torch.linalg.norm(param.grad1)+1e-6) + param.grad / (torch.linalg.norm(param.grad)+1e-6)
+                param.grad1 = None
 
-        return loss.detach() / self.args.gradient_accumulation_steps # , loss1.detach() / self.args.gradient_accumulation_steps, loss2.detach() / self.args.gradient_accumulation_steps
-
+        return loss1.detach() / self.args.gradient_accumulation_steps
+    
     def compute_loss(
         self,
         model: Union[PreTrainedModel, nn.Module],
@@ -681,7 +692,7 @@ class NewSPINTrainer(Trainer):
                 "compute_loss is only implemented for SPINDataCollatorWithPadding, and you passed a datacollator that is different than "
                 "SPINDataCollatorWithPadding - you might see unexpected behavior. Alternatively, you can implement your own prediction_step method if you are using a custom data collator"
             )
-        loss, metrics, loss1, loss2 = self.get_batch_metrics(model, inputs, train_eval="train")
+        loss1, loss2, metrics = self.get_batch_metrics(model, inputs, train_eval="train")
 
         # force log the metrics
         if self.accelerator.is_main_process:
@@ -689,7 +700,7 @@ class NewSPINTrainer(Trainer):
 
         # if return_outputs:
         #     return (loss, metrics)
-        return loss, loss1, loss2
+        return loss1, loss2
 
     def get_batch_samples(self, model, batch: Dict[str, torch.LongTensor]) -> Tuple[str, str]:
         """Generate samples from the model and reference model for the given batch of inputs."""
@@ -747,7 +758,7 @@ class NewSPINTrainer(Trainer):
                 ignore_keys = []
 
         with torch.no_grad():
-            loss, metrics, _, _ = self.get_batch_metrics(model, inputs, train_eval="eval")
+            loss, _, metrics = self.get_batch_metrics(model, inputs, train_eval="eval")
 
         # force log the metrics
         if self.accelerator.is_main_process:

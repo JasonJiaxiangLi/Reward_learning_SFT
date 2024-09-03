@@ -193,9 +193,9 @@ def main():
             max_length=training_args.max_length,
             max_prompt_length=training_args.max_prompt_length,
             peft_config=peft_config,
-            generation_rate=training_args.generation_rate,
-            max_new_tokens=training_args.max_new_tokens,
-            generate_interval=training_args.generate_interval
+            # generation_rate=training_args.generation_rate,
+            # max_new_tokens=training_args.max_new_tokens,
+            # generate_interval=training_args.generate_interval
         )
     elif training_args.set_trainer == 'spin':
         spin_trainer = SPINTrainer(
