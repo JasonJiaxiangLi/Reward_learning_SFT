@@ -1,32 +1,10 @@
-#!/bin/bash
-
-#SBATCH --time=12:00:00
-#SBATCH --nodes=1
-#SBATCH --mem=64gb
-#SBATCH --output=log/%j.out                              
-#SBATCH --error=log/%j.out
-#SBATCH --job-name=spin
-#SBATCH --requeue
-#SBATCH --gres=gpu:a100:1
-#SBATCH --partition=mhong
-module list
-
-# Benchmark info
-echo "TIMING - Starting jupyter at: $(date)"
-
 # source activate spin
-# wandb login 3dbaa1026adab988dca53f5bebe8eff91ed0d378
-# export 'WANDB_ENTITY=jasonljx96'
-# export 'WANDB_PROJECT=self_play'
+# wandb login $WANDB_KEYS
 # export 'PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512'
 
 nvidia-smi
-unset CUDA_VISIBLE_DEVICES
 which python3
-which wandb
 echo "Job is starting on $(hostname)"
-
-cd ~/jobsubmit/self_play_irl || exit
 
 accelerate launch --config_file configs/deepspeed_zero3.yaml \
     --main_process_port 29599 \
