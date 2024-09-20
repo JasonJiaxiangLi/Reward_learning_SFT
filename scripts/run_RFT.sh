@@ -23,14 +23,15 @@ max_step=2000
 
 echo "step 1 : generate demonstration-agent pair in a json file"
 WANDB_DISABLE_SERVICE=true accelerate launch --main_process_port 29082 \
-    generate.py \
+    src/generate.py \
     --model ${ref_model_path} \
     --input_dir ${demonstration_file} \
-    --batch_size 2 \
+    --batch_size 32 \
     --output_dir ./generated/temp_agent_demonstration.json
 
-echo "step 2 : reward learning from step1's data"
-WANDB_DISABLE_SERVICE=true deepspeed --include localhost:0 --master_port 29052 reward_learning_AIHF.py \
+echo "step 2 : reward learning of data from step 1"
+WANDB_DISABLE_SERVICE=true deepspeed --include localhost:0 --master_port 29052\
+    src/reward_learning_AIHF.py \
     --reward_model_path ./outputs/reward_checkpoint/IRL_SelfPlay/step0/ \
     --output_dir ./outputs/reward_checkpoint/${checkpoint_path} \
     --demonstration_path ./generated/temp_agent_demonstration.json\
@@ -38,9 +39,10 @@ WANDB_DISABLE_SERVICE=true deepspeed --include localhost:0 --master_port 29052 r
     --max_epoch 1 \
     --step 1
 
-echo "step 3 : Using APA to improve the policy"
+echo "step 3 : Using PPO to improve the policy"
 WANDB_DISABLE_SERVICE=true accelerate launch --main_process_port 29053 \
-    --config_file configs/accelerate/zero2-bf16.yaml policy_training_selfplay.py \
+    --config_file configs/accelerate/zero2-bf16.yaml \
+    src/policy_training_selfplay.py \
     --reward_model_path ./outputs/reward_checkpoint/${checkpoint_path}/step1 \
     --ref_model_path ${ref_model_path} \
     --policy_model_path ${ref_model_path} \
@@ -61,7 +63,7 @@ WANDB_DISABLE_SERVICE=true accelerate launch --main_process_port 29053 \
 #         --input_dir ${demonstration_file} \
 #         --start_index ${start_index} \
 #         --end_index ${end_index} \
-#         --batch_size 64 \
+#         --batch_size 32 \
 #         --output_dir ./data/temp_agent_demonstration.json
 
 #     WANDB_DISABLE_SERVICE=true deepspeed --include localhost:0 --master_port 29051 reward_learning_AIHF.py \

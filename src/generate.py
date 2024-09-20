@@ -107,16 +107,19 @@ def main():
     # load data
     if args.input_dir == "Anthropic/hh-rlhf":
         data = get_hh(split=args.split)
+        data = data.shuffle(seed=42)
     elif args.input_dir == "UCLA-AGI/SPIN_iter0":
         data = load_dataset(args.input_dir, split=args.split)
         data = data[:]['real']
-        data = data[args.begin_index: args.end_index]
+        # data = data.shuffle(seed=42)
+        data = data[args.start_index: args.end_index]
     else:
         data = load_dataset("json", data_files=args.input_dir, split=f'train[{args.start_index}:{args.end_index}]') 
-    # load_dataset("json", data_files=args.input_dir, split="train[:280]")
-    data = data.shuffle(seed=42)
-    print('the data has been uploaded')
+        data = data.shuffle(seed=42)
+        
+    print(f"the data has been loaded, data type: {type(data)}, len data: {len(data)}")
     if args.input_dir == "UCLA-AGI/SPIN_iter0":
+        print(f"data[0]: {data[0]}")
         prompts_all = [["### Instruction: " + data[idx][0]['content'] + "\n\n### Response: ", data[idx][1]['content']] for idx in range(len(data))]
     else:
         prompts_all=[list(pair) for pair in zip(data['prompts'], data['chosen'])]

@@ -28,7 +28,7 @@ from transformers import (
 ) 
 from dataclasses import dataclass, field
 from datasets import load_dataset
-from reward_model import GPTRewardModel
+from reward_model_RLHF import GPTRewardModel
 import numpy as np
 from typing import Any, Dict, List, Optional, Union
 from collections import defaultdict as ddict
@@ -37,6 +37,8 @@ import logging
 from torch.utils.data import Dataset
 from tqdm import tqdm
 import wandb
+import deepspeed
+deepspeed.ops.op_builder.CPUAdamBuilder().load()
 
 @dataclass
 class ScriptArguments:
@@ -53,7 +55,6 @@ class ScriptArguments:
 	preference_weight : Optional[float] =field(default=1.00)
 	demonstration_weight : Optional[float] =field(default=1.00)
 	demonstration_path : Optional[str] = field(default=None)
-	
 
 
 parser = HfArgumentParser(ScriptArguments)
@@ -226,8 +227,8 @@ if __name__=='__main__':
         eval_accumulation_steps=1,
         eval_steps=1000,
         # save_steps=50,
-        warmup_steps=50,#100 to 0
-        logging_dir="./logs",
+        warmup_steps=50, # 100 to 0
+        logging_dir="./log",
         fp16=True,
         bf16=False,
         learning_rate=1e-6,
@@ -247,17 +248,19 @@ if __name__=='__main__':
             if fpath.endswith("model.bin"):
                 checkpoint = os.path.join(checkpoint, fpath)
                 break
-        print('--------------------')
+        print('-------------------------------')
         print(checkpoint)
         print('-------------------------------')
 
-        model.load_state_dict(torch.load(checkpoint))
+        if checkpoint:
+            model.load_state_dict(torch.load(checkpoint))
     
     for name, param in model.named_parameters():
         if 'transformer.layers' in name :
             if int(name.split('.')[2]) < 20:
-                print(name,'has locked')
+                # print(name, 'has freezed')
                 param.requires_grad = False
+    print("transformer.layers are all freezed")
 
 
     max_length = 256
