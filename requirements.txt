@@ -197,6 +197,7 @@ pytablewriter==1.2.0
 python-dateutil @ file:///home/conda/feedstock_root/build_artifacts/python-dateutil_1709299778482/work
 python-dotenv==1.0.1
 python-multipart==0.0.9
+python-rapidjson==1.20
 python3-openid==3.2.0
 pytz==2024.1
 pyu2f==0.1.5
@@ -206,7 +207,7 @@ qdldl==0.1.7.post4
 qpth==0.0.17
 quantile-python==1.1
 rapidfuzz==3.9.6
-ray==2.32.0
+ray==2.7.0
 referencing==0.35.1
 regex==2024.5.15
 repoze.sendmail==4.4.1
@@ -246,11 +247,13 @@ tcolorpy==0.1.6
 tenacity==9.0.0
 tensorboard==2.17.0
 tensorboard-data-server==0.7.2
+tensorboardX==2.6.2.2
 threadpoolctl==3.5.0
 tiktoken==0.7.0
 tokenizers==0.15.2
 torch==2.0.1
 torchaudio==2.4.1
+torchtyping==0.1.5
 torchvision==0.19.1
 tornado @ file:///home/conda/feedstock_root/build_artifacts/tornado_1648827254365/work
 tqdm==4.66.4
@@ -260,7 +263,9 @@ transaction==4.0
 transformers==4.38.2
 translationstring==1.4
 triton==2.0.0
+tritonclient==2.49.0
 trl==0.7.4
+typeguard==2.13.3
 typepy==1.3.2
 typer==0.12.3
 typing_extensions @ file:///croot/typing_extensions_1715268824938/work

@@ -114,14 +114,8 @@ elif config_name == "1B":
     default_config.model.model_path = "EleutherAI/pythia-1.4b" # "Dahoas/pythia-1B-static-sft"
     default_config.tokenizer.tokenizer_path = "EleutherAI/pythia-1.4b" #"Dahoas/pythia-1B-static-sft"
     default_config.method.chunk_size = 4
-elif config_name == "6B":
-    default_config.train.batch_size = 1
-    default_config.train.total_steps = 1000
-    #default_config.model.model_path = "Dahoas/pythia-6B-static-sft" # "databricks/dolly-v2-7b" #  
-    default_config.model.model_path = "/home/zeyi/irl_sentiment_chenliang/RLHF-APA-main/checkpoints/sft_hh/best_checkpoint" 
-    default_config.tokenizer.tokenizer_path =  "EleutherAI/gpt-neox-20b" # "databricks/dolly-v2-7b" #
-    default_config.method.chunk_size = 1 
-    OUTPUT_DIR = "output_2.8B"
+else:
+    raise ValueError(f"Cannot fine config for {config_name}")
 
 
 def prepare_tensor(name: str, input):
@@ -185,11 +179,12 @@ def create_reward_fn():  # noqa:  C901
             if fpath.endswith("model.bin"):
                 checkpoint = os.path.join(checkpoint, fpath)
                 break
-        print(checkpoint)
+        print(f"checkpoint: {checkpoint}")
         #checkpoint='/home/zeyi/irl_sentiment_chenliang/HH_eval/RLHF-APA/IRL-HF/reward_checkpoint/IRLHF_2.8B/step0/checkpoint-100/'
         #checkpoint='/home/ubuntu/RLHF-APA/reward_model/checkpoint-500'
         
-        reward_model.load_state_dict(torch.load(checkpoint))
+        if checkpoint:
+            reward_model.load_state_dict(torch.load(checkpoint))
         reward_model.eval()
         reward_model.requires_grad_(False)
         device = torch.cuda.device_count() - 1
@@ -237,12 +232,8 @@ if __name__ == "__main__":
     print(config.policy_model_path)
     print('-----------------------')
 
-    # dataset = load_dataset("openbmb/UltraFeedback")
-    # prompts = dataset["train"]["instruction"][20000:30000]
-    # eval_prompts = dataset["train"]["instruction"][-20:]
-    dataset= load_dataset("json", data_files = "./data/Self_play_train.json")
-    eval_prompts = load_dataset("json", data_files = "./data/Self_play_train.json")
-    # dataset = load_dataset("Dahoas/rm-static")
+    dataset= load_dataset("json", data_files = "generated/temp_agent_demonstration.json")
+    eval_prompts = load_dataset("json", data_files = "generated/temp_agent_demonstration.json")
     prompts = dataset["train"]["prompts"]
     eval_prompts = dataset["train"]["prompts"][-30:]
     reward_fn = create_reward_fn()

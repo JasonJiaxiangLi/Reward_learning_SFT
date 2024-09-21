@@ -12,13 +12,11 @@ set -e
 epoch=5
 # reward_model_name=EleutherAI/pythia-1.4b
 
-# experiment setting
+# experiment setting, need THREE GPUs
 # demonstration_file=./data/Self_play_train.json
 demonstration_file=UCLA-AGI/SPIN_iter0
 checkpoint_path=IRL_SelfPlay
-# ref_model_path=EleutherAI/pythia-1.4b
-ref_model_path=alignment-handbook/zephyr-7b-sft-full
-# ref_model_path=./checkpoint/policy_checkpoint/IRL_SelfPlay/step0/checkpoint_3000
+ref_model_path=EleutherAI/pythia-1.4b
 max_step=2000
 
 echo "step 1 : generate demonstration-agent pair in a json file"
@@ -30,7 +28,7 @@ WANDB_DISABLE_SERVICE=true accelerate launch --main_process_port 29082 \
     --output_dir ./generated/temp_agent_demonstration.json
 
 echo "step 2 : reward learning of data from step 1"
-WANDB_DISABLE_SERVICE=true deepspeed --include localhost:0 --master_port 29052\
+WANDB_DISABLE_SERVICE=true deepspeed --include localhost:0 --master_port 29052 \
     src/reward_learning_AIHF.py \
     --reward_model_path ./outputs/reward_checkpoint/IRL_SelfPlay/step0/ \
     --output_dir ./outputs/reward_checkpoint/${checkpoint_path} \
