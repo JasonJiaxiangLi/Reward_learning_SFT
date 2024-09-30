@@ -19,13 +19,13 @@ python -m pip install flash-attn --no-build-isolation
 huggingface-cli login --token "${your_access_token}"
 ```
 
-## Run Reward Learn SFT
+## Run Reward Learning SFT
 
 ```
 bash run_RFT.sh
 ```
 
-## Run Implicit Reward Learn SFT
+## Run Implicit Reward Learning SFT
 ```
 bash run_IRFT.sh
 ```
